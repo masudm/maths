@@ -10,19 +10,29 @@ let question = `(${a}+${b}x)^${c}`;
 let sum = "";
 let approx = 0;
 
-let z = c + 1; //by default but could be 4 for example
+let z = c + 1; //by default
+
+let coeffReturn = -1; //return a coefficient if more than 0
+let coeffs = [];
 
 for (var count = 0; count < z; count++) {
 	let combine = (choose(c, count));
   let coeff = combine * (a**(c - count)) * (b**count);
   sum += (coeff+"x^"+count+" + ");
   approx += coeff * (x)**count;
+  
+  coeffs.push(coeff);
 }
 
 sum = sum.substring(0, sum.length - 3);
 
 console.log(sum);
 console.log(approx);
+console.log(coeffs);
+
+if (coeffReturn > -1) {
+	console.log(coeffs[coeffReturn]);
+}
 
 function choose(n,k) {
    if (k > n-k) {k = n-k;} // Use symmetry for smaller computation
