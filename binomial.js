@@ -1,16 +1,18 @@
-//binomial: (a+bx)^c
+//binomial: (a+bx)^c z times
 //approximate: using x
-let a = 5;
-let b = 2;
-let c = 4;
-let x = 1;
+let a = 1;
+let b = -1/4;
+let c = 10;
+let x = 0.1;
 
 let question = `(${a}+${b}x)^${c}`;
 
 let sum = "";
 let approx = 0;
 
-for (var count = 0; count < c + 1; count++) {
+let z = c + 1; //by default but could be 4 for example
+
+for (var count = 0; count < z; count++) {
 	let combine = (choose(c, count));
   let coeff = combine * (a**(c - count)) * (b**count);
   sum += (coeff+"x^"+count+" + ");
