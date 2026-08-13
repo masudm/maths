@@ -45,7 +45,7 @@ export function modelResponse(question: Question): Record<string, string> {
  * Used to prove that the method marks are reachable at all — a scheme whose M1 can never be
  * earned is a broken scheme, and that is easy to write by accident.
  */
-function schemeWorking(question: Question): string[] {
+export function schemeWorking(question: Question): string[] {
   const lines: string[] = [];
   for (const step of question.markScheme.steps) {
     for (const matcher of step.accept) {
@@ -59,8 +59,10 @@ function schemeWorking(question: Question): string[] {
 function perturb(value: MathValue): string | null {
   const n = toNumber(value);
   if (n === null) return null;
-  // Move far enough that no tolerance or range could accept it.
-  const shifted = Math.abs(n) > 1e-9 ? n * 2 + 7 : 13;
+  // Move far enough that no tolerance or range could accept it. n -> 2n + 7 has a fixed
+  // point at -7, so the result is checked rather than assumed to differ.
+  let shifted = Math.abs(n) > 1e-9 ? n * 2 + 7 : 13;
+  if (Math.abs(shifted - n) < 1e-6) shifted = n + 11;
   return `${shifted}`;
 }
 

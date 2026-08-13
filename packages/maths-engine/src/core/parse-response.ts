@@ -20,8 +20,11 @@ import {
   type MathValue,
 } from './value.js';
 
+// A unit only counts as a unit when it follows a number, a bracket or a space. Without the
+// lookbehind, "exponential" ends in the litre symbol and every word ending in "s" ends in
+// seconds.
 const UNIT_PATTERN =
-  /\s*(cm|mm|km|m|kg|g|ml|litres|litre|l|hours|hour|hrs|h|minutes|minute|mins|min|seconds|secs|s|degrees|deg|people|days|years|units?|square units?|cm2|cm3|m2|m3|cm\^2|cm\^3|m\^2|m\^3|km\/h|m\/s|mph|g\/cm3|£|\$|p|%)\s*$/i;
+  /(?<=[\d)\s])\s*(cm\^?[23]|m\^?[23]|km\/h|m\/s|g\/cm\^?3|mm|cm|km|kg|ml|litres|litre|hours|hour|hrs|minutes|minute|mins|min|seconds|secs|degrees|deg|people|days|years|square units|units|unit|mph|m|g|l|h|s)\s*$/i;
 
 export interface ParsedResponse {
   /** Best-effort interpretation of the raw text. */
@@ -30,6 +33,12 @@ export interface ParsedResponse {
   unit: string | null;
   /** The number of decimal places written, for accuracy checks. */
   decimalPlaces: number | null;
+  /**
+   * The student wrote a percent sign. The value is the fraction (75% -> 0.75), but a
+   * question that asks for an answer *as* a percentage wants 75, so the marker is told to
+   * try both readings.
+   */
+  percentWritten: boolean;
   raw: string;
 }
 
@@ -136,6 +145,7 @@ export function parseResponse(raw: string, expect: ExpectKind = 'auto'): ParsedR
     value: null,
     unit: null,
     decimalPlaces: null,
+    percentWritten: /%\s*$/.test(trimmed),
     raw: trimmed,
   };
   if (trimmed === '') return result;
@@ -168,12 +178,14 @@ export function parseResponse(raw: string, expect: ExpectKind = 'auto'): ParsedR
     }
   }
 
-  if (expect === 'point' || expect === 'vector') {
+  // A bracketed pair is a coordinate even when nothing told us to expect one, which is how
+  // it appears in a line of working.
+  if (expect === 'point' || expect === 'vector' || (expect === 'auto' && /^\(.+,.+\)$/.test(body))) {
     const inner = /^\(?\s*(.+?)\s*\)?$/.exec(body)?.[1] ?? body;
     const parts = inner.split(',').map((p) => p.trim());
     const parsed = parts.map((p) => parseExactNumeric(p)?.asRational() ?? null);
     if (parsed.every((p): p is Rational => p !== null) && parsed.length >= 2) {
-      result.value = expect === 'point' ? pointValue(...parsed) : vectorValue(...parsed);
+      result.value = expect === 'vector' ? vectorValue(...parsed) : pointValue(...parsed);
       return result;
     }
   }

@@ -180,9 +180,18 @@ export class Exact {
         const parts: string[] = [];
         const bare = t.radicand === 1n && t.pi === 0;
         const unit = t.coeff.abs().eq(Rational.ONE) && !bare;
-        if (!unit) parts.push(t.coeff.abs().toString());
+        const c = t.coeff.abs();
+        // A fractional coefficient on a surd or pi is written with the denominator trailing,
+        // as "root3/2" rather than "1/2root3", which is both conventional and unambiguous
+        // to parse back.
+        const fractional = !bare && !c.isInteger();
+        if (!unit && !fractional) parts.push(c.toString());
+        if (!unit && fractional && !c.n.toString().startsWith('1/') && c.n !== 1n) {
+          parts.push(`${c.n}`);
+        }
         if (t.pi) parts.push('pi');
         if (t.radicand !== 1n) parts.push(`root${t.radicand}`);
+        if (fractional) parts.push(`/${c.d}`);
         const body = parts.join('');
         const sign = t.coeff.isNegative() ? '-' : i > 0 ? '+' : '';
         return `${sign}${body}`;

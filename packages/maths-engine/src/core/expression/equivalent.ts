@@ -55,7 +55,18 @@ function sample(e: Expr, envs: Record<string, number>[]): (number | null)[] {
 export function expressionsEquivalent(a: Expr, b: Expr): boolean {
   const aRel = isRelation(a);
   const bRel = isRelation(b);
-  if (aRel !== bRel) return false;
+  if (aRel !== bRel) {
+    // An answer box labelled "y =" is satisfied by "y = 3x + 2" and by "3x + 2" alike, so a
+    // simple equation is compared against the bare expression by its other side.
+    const relation = aRel ? a : bRel ? b : null;
+    const bare = aRel ? b : a;
+    if (!relation || !isRelation(relation) || relation.op !== '=') return false;
+    const lhsIsSymbol = relation.lhs.k === 'sym';
+    const rhsIsSymbol = relation.rhs.k === 'sym';
+    if (lhsIsSymbol === rhsIsSymbol) return false;
+    const subject = lhsIsSymbol ? relation.rhs : relation.lhs;
+    return expressionsEquivalent(subject, bare);
+  }
 
   const vars = [...new Set([...symbols(a), ...symbols(b)])].filter((v) => v !== 'pi');
   const envs = environments(vars, Math.max(8, vars.length * 4));

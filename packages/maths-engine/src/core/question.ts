@@ -36,6 +36,12 @@ export interface AnswerSlot {
   policy?: ComparePolicy;
   /** Units expected in the answer, for display. */
   units?: string;
+  /**
+   * Further values that are also fully correct. This models schemes that accept a second
+   * quantity outright, such as OCR's "28 or [£]0.28", where the two differ by their unit
+   * rather than by their form.
+   */
+  alsoAccept?: MathValue[];
   /** Alternative acceptable forms, used by the conformance harness to prove `oe` works. */
   alternativeForms?: string[];
 }

@@ -187,8 +187,12 @@ export function mark(question: Question, response: ResponseLike): MarkResult {
   const slotResults: Record<string, boolean> = {};
   for (const s of question.slots) {
     const value = state.slotValues[s.id] ?? null;
+    const policy = s.policy ?? { mode: 'oe' };
+    const parsed = state.slotParsed[s.id];
     slotResults[s.id] =
-      value !== null && equivalent(s.expect, value, s.policy ?? { mode: 'oe' }, state.slotParsed[s.id]);
+      value !== null &&
+      (equivalent(s.expect, value, policy, parsed) ||
+        (s.alsoAccept ?? []).some((alt) => equivalent(alt, value, policy, parsed)));
   }
   const correct = question.slots.every((s) => slotResults[s.id]);
 

@@ -9,6 +9,7 @@
 import { expressionsEquivalent } from './expression/equivalent.js';
 import { parseExpression } from './expression/parse.js';
 import { Rational } from './rational.js';
+import { Exact } from './exact.js';
 import { toNumber, type MathValue } from './value.js';
 import type { ParsedResponse } from './parse-response.js';
 
@@ -116,6 +117,31 @@ export function equivalent(
   policy: ComparePolicy = {},
   parsed?: ParsedResponse,
 ): boolean {
+  if (parsed?.percentWritten) {
+    // "75%" is 0.75 as a probability and 75 as a percentage answer. Both readings are
+    // offered, since examiners accept either wherever the quantity is unambiguous.
+    const asFraction = compareCore(expected, actual, policy, parsed);
+    if (asFraction) return true;
+    const scaled = scaleBy100(actual);
+    return scaled !== null && compareCore(expected, scaled, policy, parsed);
+  }
+  return compareCore(expected, actual, policy, parsed);
+}
+
+function scaleBy100(value: MathValue): MathValue | null {
+  if (value.kind === 'exact') {
+    return { kind: 'exact', value: value.value.mul(Exact.int(100)) };
+  }
+  if (value.kind === 'decimal') return { kind: 'decimal', value: value.value * 100 };
+  return null;
+}
+
+function compareCore(
+  expected: MathValue,
+  actual: MathValue,
+  policy: ComparePolicy = {},
+  parsed?: ParsedResponse,
+): boolean {
   if (policy.rejectRatio && actual.kind === 'ratio') return false;
   if (policy.requireStandardForm && !STANDARD_FORM.test((parsed?.raw ?? '').trim())) return false;
   if (!unitOk(parsed, policy)) return false;
@@ -185,7 +211,7 @@ export function equivalent(
       }
       const remaining = [...actual.items];
       return expected.items.every((item) => {
-        const idx = remaining.findIndex((candidate) => equivalent(item, candidate, policy));
+        const idx = remaining.findIndex((candidate) => compareCore(item, candidate, policy));
         if (idx === -1) return false;
         remaining.splice(idx, 1);
         return true;
