@@ -75,6 +75,14 @@ height of the wall, and the row is centred along the segment.
 | `joint_neck_fraction` | 0.45 | Waist of the tab, as a fraction of the full width |
 | `joint_head_fraction` | 0.70 | Widest part of the tab — must exceed the neck |
 | `joint_clearance` | 0.2 | Gap around the socket. Raise it if the joint is too tight |
+| `joint_corner_relief` | 0.5 | Relief circles in the socket corners, which a round nozzle cannot reach |
+| `joint_first_layer_relief` | 0.2 | Extra gap over the first layers, where squash makes parts fatter |
+| `joint_first_layer_height` | 0.6 | How far up that extra gap goes |
+| `fit_test_piece` | false | Print a short pair of test joints instead of the guide |
+
+All of the clearance lives on the female socket, so the tab always prints at
+its nominal size and there is only one half to tune. See
+[Tuning the fit](#tuning-the-fit).
 
 ### Mounting
 
@@ -119,6 +127,47 @@ Trim the last segment to length by rendering it with a shorter
 **Bed size:** a segment with a tab occupies `segment_length + joint_depth` on
 the bed — 212mm at the defaults. If that will not fit, reduce `segment_length`.
 
+## Tuning the fit
+
+A joint modelled to exact size will not fit, because no printer prints to exact
+size. Three separate things are accounted for, and each has its own parameter:
+
+**The gap itself** (`joint_clearance`, 0.2mm per face). Extrusion width varies
+with nozzle, material and flow, so the socket is cut oversize by this much on
+every face. It is applied to the socket only — the tab is always nominal — so
+there is one number to change rather than two.
+
+**Corners the nozzle cannot reach** (`joint_corner_relief`, 0.5mm). A nozzle
+lays down a round bead, so it physically cannot cut a sharp inside corner: it
+leaves a fillet of plastic in each corner of the socket, right where the tab's
+corners need to go, and the joint sits proud no matter how much clearance you
+add. The socket therefore gets a relief circle on every corner — the same
+dogbone trick used for CNC-routed joinery. You can see them here:
+
+![Relief circles in the socket corners](images/socket.png)
+
+**Elephant's foot** (`joint_first_layer_relief` 0.2mm over
+`joint_first_layer_height` 0.6mm). The first layers of any print squash
+outwards under the nozzle, which makes the bottom of the tab fatter and the
+bottom of the socket tighter at the same moment. The socket is opened up by an
+extra amount over those first layers only, which absorbs both and doubles as a
+lead-in when the tab is lowered in.
+
+### The fit test piece
+
+Rather than guess, print the test piece: set `fit_test_piece = true` and you
+get a short male stub and a matching female stub side by side. It takes a few
+minutes instead of a few hours.
+
+- **Falls together with a rattle** — drop `joint_clearance` by 0.05 and retry.
+- **Will not seat, or seats but rocks** — raise `joint_clearance` by 0.05. If it
+  is close but binds on the corners, raise `joint_corner_relief` instead.
+- **Firm push, no rock** — that is the number. Set it and print the real thing.
+
+0.2mm suits a well-tuned 0.4mm nozzle. Expect to want more with a larger
+nozzle, with materials that swell, or on a printer that has not been calibrated
+for flow.
+
 ## Printing
 
 | Setting | Recommendation |
@@ -139,6 +188,8 @@ off and accept a slightly rougher top edge.
 
 ![Two segments joined](images/assembly.png)
 
+0. Print the fit test piece first and set `joint_clearance` from it — see
+   [Tuning the fit](#tuning-the-fit).
 1. Glue a magnet into each pocket (6×3mm N35 discs at the default sizes).
    Check the polarity is consistent along the run before the glue sets.
 2. Join segments by **lowering one onto the other** — the tab drops into the
@@ -202,5 +253,12 @@ plate so buyers can still download an STL.
 > Optional pockets along the inner walls take 6×3mm magnets, so the guide also
 > works as a magnetic strip. Countersunk screw holes and a recess for 19mm
 > mounting tape are both built in and can be switched off.
+>
+> The joint is built for real printers rather than perfect ones: the clearance
+> is adjustable and sits entirely on the socket side, the socket corners are
+> relieved so the nozzle radius cannot leave material where the tab has to
+> seat, and the first layers are opened up to swallow elephant's foot. Switch
+> on the fit test piece to print a short pair of joints and dial the clearance
+> in before committing to a whole window.
 >
 > Prints flat with no supports. Measure your window, hit Customize, and print.

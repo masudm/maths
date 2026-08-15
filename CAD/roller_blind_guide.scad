@@ -59,6 +59,14 @@ joint_neck_fraction = 0.45;  // [0.2:0.01:0.9]
 joint_head_fraction = 0.70;  // [0.3:0.01:0.95]
 // Gap cut around the socket so the tab actually drops in. Raise it if the joint is tight
 joint_clearance = 0.2;   // [0:0.05:1]
+// Relief drilled into the socket corners, which a round nozzle cannot reach. Roughly one nozzle width
+joint_corner_relief = 0.5;      // [0:0.05:2]
+// Extra gap over the first few layers, where squash makes the tab fatter and the socket tighter
+joint_first_layer_relief = 0.2; // [0:0.05:1]
+// How far up that extra gap goes - two or three layers
+joint_first_layer_height = 0.6; // [0:0.1:2]
+// Print a short pair of test joints instead of the guide, to dial in the clearances
+fit_test_piece = false;
 
 /* [Mounting] */
 
@@ -136,6 +144,10 @@ if (magnets_enabled && magnet_diameter >= channel_depth)
     echo("WARNING: magnet_diameter is at least the channel depth - the pockets will break out of the top of the walls.");
 if (joint_head_fraction <= joint_neck_fraction)
     echo("WARNING: joint_head_fraction must exceed joint_neck_fraction, or the joint will not lock.");
+if (joint_corner_relief >= joint_neck / 2)
+    echo("WARNING: joint_corner_relief is large next to the tab waist - the relief circles will eat into the lock.");
+if (joint_first_layer_height >= joint_depth)
+    echo("WARNING: joint_first_layer_height is as tall as the joint is deep - the extra gap applies to the whole socket.");
 if (joint_depth >= segment_length / 2)
     echo("WARNING: joint_depth is at least half of segment_length - the joints will meet in the middle.");
 if (screw_holes_enabled && countersink_depth >= back_thickness)
@@ -173,20 +185,37 @@ module profile_2d() {
         profile_square_2d();
 }
 
-// The jigsaw tab outline, drawn flat in X (width) and Y (along the guide),
+// Corners of the jigsaw tab, drawn flat in X (width) and Y (along the guide),
 // starting at y and reaching joint_depth further on. The waist near the base
 // is what stops a joined pair pulling apart lengthways.
+function joint_points(y) = [
+    [centre_x - joint_neck, y],
+    [centre_x - joint_neck, y + joint_depth * 0.25],
+    [centre_x - joint_head, y + joint_depth * 0.55],
+    [centre_x - joint_head * 0.85, y + joint_depth],
+    [centre_x + joint_head * 0.85, y + joint_depth],
+    [centre_x + joint_head, y + joint_depth * 0.55],
+    [centre_x + joint_neck, y + joint_depth * 0.25],
+    [centre_x + joint_neck, y]
+];
+
+// The tab outline itself.
 module joint_profile_2d(y) {
-    polygon([
-        [centre_x - joint_neck, y],
-        [centre_x - joint_neck, y + joint_depth * 0.25],
-        [centre_x - joint_head, y + joint_depth * 0.55],
-        [centre_x - joint_head * 0.85, y + joint_depth],
-        [centre_x + joint_head * 0.85, y + joint_depth],
-        [centre_x + joint_head, y + joint_depth * 0.55],
-        [centre_x + joint_neck, y + joint_depth * 0.25],
-        [centre_x + joint_neck, y]
-    ]);
+    polygon(joint_points(y));
+}
+
+// The socket outline: the tab grown by gap on every face, with a relief circle
+// dropped on each corner. A printer lays plastic down with a round nozzle, so
+// it cannot cut a sharp inside corner - it leaves a fillet of material exactly
+// where the tab's corners need to go, and the joint stands proud. The relief
+// circles clear that material out, the same trick as a dogbone in CNC joinery.
+module socket_profile_2d(gap) {
+    union() {
+        offset(delta = gap) joint_profile_2d(-gap);
+        if (joint_corner_relief > 0)
+            for (p = joint_points(0))
+                translate(p) circle(r = joint_corner_relief + gap);
+    }
 }
 
 // A magnet pocket seen face-on: a circle, optionally drawn out to a point so
@@ -215,30 +244,39 @@ module profile_solid(y, len) {
 
 // Swaps a feature between the two ends by mirroring it along the length, so
 // the tab and the socket only have to be modelled once each.
-module flip() {
-    translate([0, segment_length, 0]) mirror([0, 1, 0]) children();
+module flip(len = segment_length) {
+    translate([0, len, 0]) mirror([0, 1, 0]) children();
 }
 
 // The tab that sticks out past the far end face. It is trimmed to the U
 // profile, so the tab carries the same walls and back as the rest of the guide.
-module joint_tab_at_finish() {
+module joint_tab_at_finish(len = segment_length) {
     intersection() {
-        profile_solid(segment_length - eps, joint_depth + eps);
+        profile_solid(len - eps, joint_depth + eps);
         translate([0, 0, -eps])
             linear_extrude(height = profile_depth + 2 * eps)
-                joint_profile_2d(segment_length - eps);
+                joint_profile_2d(len - eps);
     }
 }
 
 // The socket the tab drops into, at the near end. Cut through the full depth
 // of the profile, because segments are assembled by lowering one onto the
 // other rather than sliding them together lengthways - a waisted tab cannot
-// slide in. The clearance is applied here only, so the tab prints at size.
+// slide in. All of the clearance lives here, so the tab always prints at its
+// nominal size and only one half of the pair has to be tuned.
 module joint_socket_at_start() {
     translate([0, 0, -eps])
         linear_extrude(height = profile_depth + 2 * eps)
-            offset(delta = joint_clearance)
-                joint_profile_2d(-joint_clearance);
+            socket_profile_2d(joint_clearance);
+
+    // The first layers of a print squash outwards, which makes the bottom of
+    // the tab fatter and the bottom of the socket tighter at the same time.
+    // Opening the socket up over the same height absorbs both, and doubles as
+    // a lead-in when the tab is lowered in.
+    if (joint_first_layer_relief > 0 && joint_first_layer_height > 0)
+        translate([0, 0, -eps])
+            linear_extrude(height = joint_first_layer_height + eps)
+                socket_profile_2d(joint_clearance + joint_first_layer_relief);
 }
 
 // Magnet pockets on the inner face of the left wall.
@@ -263,7 +301,7 @@ module magnet_pockets() {
 
 // Countersunk screw holes down the centre of the channel floor, plus the
 // optional tape recess in the back face.
-module mounting_cuts() {
+module mounting_cuts(len = segment_length) {
     if (screw_holes_enabled)
         for (i = [0 : screw_count - 1])
             translate([centre_x, screw_first_y + i * screw_spacing, 0]) {
@@ -281,29 +319,47 @@ module mounting_cuts() {
     if (tape_recess_enabled)
         translate([centre_x - tape_recess_width / 2, -joint_depth - eps, -eps])
             cube([tape_recess_width,
-                  segment_length + 2 * joint_depth + 2 * eps,
+                  len + 2 * joint_depth + 2 * eps,
                   tape_recess_depth + eps]);
 }
 
-// The finished part.
-module guide() {
+// The finished part. The arguments let the fit test print short stubs of the
+// same geometry; everything else uses the defaults straight from the UI.
+module guide(len = segment_length,
+             start_joint = joint_start,
+             end_joint = joint_end,
+             with_magnets = magnets_enabled,
+             with_mounting = true) {
     difference() {
         union() {
-            profile_solid(0, segment_length);
-            if (joint_end == "male") joint_tab_at_finish();
-            if (joint_start == "male") flip() joint_tab_at_finish();
+            profile_solid(0, len);
+            if (end_joint == "male") joint_tab_at_finish(len);
+            if (start_joint == "male") flip(len) joint_tab_at_finish(len);
         }
-        if (joint_start == "female") joint_socket_at_start();
-        if (joint_end == "female") flip() joint_socket_at_start();
-        if (magnets_enabled) magnet_pockets();
-        mounting_cuts();
+        if (start_joint == "female") joint_socket_at_start();
+        if (end_joint == "female") flip(len) joint_socket_at_start();
+        if (with_magnets) magnet_pockets();
+        if (with_mounting) mounting_cuts(len);
     }
+}
+
+// A short male stub and a matching female stub, side by side. Print this
+// first: it takes minutes rather than hours, and it is the only honest way to
+// find the clearance your printer needs before committing to a whole window.
+module fit_test() {
+    len = max(joint_depth * 2, 20);
+    guide(len = len, start_joint = "none", end_joint = "male",
+          with_magnets = false, with_mounting = false);
+    translate([overall_width + 10, 0, 0])
+        guide(len = len, start_joint = "female", end_joint = "none",
+              with_magnets = false, with_mounting = false);
 }
 
 // MakerWorld output -------------------------------------------------------
 
 module mw_plate_1() {
-    guide();
+    if (fit_test_piece) fit_test();
+    else guide();
 }
 
 mw_plate_1();

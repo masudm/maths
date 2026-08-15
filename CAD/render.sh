@@ -29,4 +29,8 @@ render start  none   male "$@"
 render middle female male "$@"
 render end    female none "$@"
 
+# The short pair of stubs for dialling in the joint clearance.
+echo "rendering fit_test"
+openscad -o "$out/guide_fit_test.stl" -D fit_test_piece=true "$@" "$scad"
+
 echo "STLs written to $out"

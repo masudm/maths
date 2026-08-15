@@ -49,6 +49,15 @@ def check(condition, message):
         failures.append(message)
 
 
+def slab_volume(mesh, z0, z1):
+    """Volume of the mesh between two heights - a stand-in for cross-section area."""
+    lo, hi = mesh.bounds
+    box = trimesh.creation.box(
+        extents=[hi[0] - lo[0] + 10, hi[1] - lo[1] + 10, z1 - z0])
+    box.apply_translation([(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (z0 + z1) / 2])
+    return trimesh.boolean.intersection([mesh, box], engine="manifold").volume
+
+
 def render(out_dir, name, **overrides):
     """Render the .scad to an STL and load it."""
     out = Path(out_dir) / f"{name}.stl"
@@ -159,6 +168,57 @@ def main():
         check(collision.volume > 1.0,
               f"the joint is snug - a 0.5mm overshoot collides "
               f"(overlap {collision.volume:.1f} mm3)")
+
+        print("\nPrinter clearances:")
+        # All of the gap belongs to the socket, so changing the clearance must
+        # not alter the tab - otherwise both halves would need re-tuning.
+        loose_tab = render(tmp, "loose_tab", joint_start="none", joint_end="male",
+                           joint_clearance=0.6, joint_corner_relief=1.0)
+        check(math.isclose(loose_tab.volume, start.volume, rel_tol=1e-6),
+              "clearance settings leave the male tab untouched")
+
+        sharp = render(tmp, "sharp", joint_start="female", joint_end="none",
+                       joint_corner_relief=0, joint_first_layer_relief=0)
+        no_corner = render(tmp, "no_corner", joint_start="female", joint_end="none",
+                           joint_corner_relief=0)
+        # sharp has both reliefs off; no_corner adds only the first-layer
+        # relief; end (the default) adds the corner relief on top of that.
+        check(no_corner.volume < sharp.volume,
+              f"first-layer relief opens the bottom of the socket "
+              f"({sharp.volume - no_corner.volume:.0f} mm3 removed)")
+        check(end.volume < no_corner.volume,
+              f"corner relief clears the inside corners "
+              f"({no_corner.volume - end.volume:.0f} mm3 removed)")
+
+        # The first-layer relief must reach the first layers and no further.
+        # Comparing the same slab across two renders isolates it - comparing
+        # two heights of one render would just measure the edge fillet.
+        low_relieved = slab_volume(no_corner, 0.2, 0.4)
+        low_sharp = slab_volume(sharp, 0.2, 0.4)
+        high_relieved = slab_volume(no_corner, 2.9, 3.1)
+        high_sharp = slab_volume(sharp, 2.9, 3.1)
+        check(low_relieved < low_sharp,
+              f"the relief opens up the first layers "
+              f"({low_sharp - low_relieved:.2f} mm3 removed from the bottom slab)")
+        check(math.isclose(high_relieved, high_sharp, rel_tol=1e-6),
+              "the relief stops above the first layers, leaving the fit unchanged higher up")
+
+        # A joint cut with sharp corners still has to mate, so the relief is
+        # insurance rather than something the nominal geometry depends on.
+        sharp_mated = sharp.copy()
+        sharp_mated.apply_translation([0, SEGMENT_LENGTH, 0])
+        sharp_overlap = trimesh.boolean.intersection([start, sharp_mated], engine="manifold")
+        check(sharp_overlap.volume < 1.0,
+              "the joint still mates with every relief switched off")
+
+        print("\nFit test piece:")
+        fit = render(tmp, "fit", fit_test_piece=True)
+        check(fit.body_count == 2, "the fit test prints two separate stubs")
+        check(math.isclose(fit.extents[0], 2 * OVERALL_WIDTH + 10, abs_tol=0.01),
+              f"the two stubs sit side by side (got {fit.extents[0]:.2f} wide)")
+        check(fit.extents[1] < SEGMENT_LENGTH / 2,
+              f"the fit test is much shorter than a real segment "
+              f"(got {fit.extents[1]:.2f}mm)")
 
         print("\nParametric behaviour:")
         wide = render(tmp, "wide", channel_width=40, segment_length=120,
