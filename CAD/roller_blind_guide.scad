@@ -100,14 +100,20 @@ tape_recess_depth = 1;       // [0.2:0.1:5]
 
 // Front profile of the pelmet
 top_style = "straight";   // [straight, angled, curved]
-// Depth of the blind mechanism, back to front - the clear space inside (sketch: A)
-internal_depth = 50;      // [20:1:300]
+// Depth of the blind mechanism, back to front - the clear space inside (sketch: A).
+// Negative reverses the pelmet, so it reaches out the other side of the guide
+internal_depth = 50;      // [-300:1:300]
 // Height of the blind mechanism - the clear space inside (sketch: B)
 internal_height = 100;    // [20:1:300]
 // Angled only: slope of the face, measured from horizontal. Shallower reaches further forward
 top_angle = 45;           // [15:1:80]
 // Curved only: arc radius. 0 works out the smallest radius that clears the mechanism
 curve_radius = 0;         // [0:1:400]
+// Where the pelmet's face starts, measured from the front of the guide. The rib is
+// cut off here, clear of the brackets holding the mechanism to the window head
+pelmet_cut_offset = 0;    // [-60:0.5:60]
+// Which end of the window this rib is for. The groove is on one face, so the two are a pair
+rib_hand = "left";        // [left, right]
 
 /* [Top cover - build] */
 
@@ -192,17 +198,36 @@ joint_head = overall_width * joint_head_fraction / 2;
 // rectangle, so anything other than a square profile needs a bigger envelope
 // to hold the same mechanism. Both are worked out from the clear size rather
 // than asked for, so the mechanism always fits whatever style is chosen.
-auto_radius = sqrt(internal_depth * internal_depth + internal_height * internal_height);
+// The sign of internal_depth says which side of the guide the pelmet reaches
+// out to; the size of it is what the profile has to clear. Everything below is
+// built reaching forwards and mirrored at the end, so there is only one shape
+// to reason about.
+clear_depth = abs(internal_depth);
+
+auto_radius = sqrt(clear_depth * clear_depth + internal_height * internal_height);
 cover_radius = curve_radius <= 0 ? auto_radius : curve_radius;
 
 envelope_depth =
-    top_style == "angled" ? internal_depth + internal_height / tan(top_angle) :
+    top_style == "angled" ? clear_depth + internal_height / tan(top_angle) :
     top_style == "curved" ? cover_radius :
-                            internal_depth;
+                            clear_depth;
 envelope_height =
-    top_style == "angled" ? internal_height + internal_depth * tan(top_angle) :
+    top_style == "angled" ? internal_height + clear_depth * tan(top_angle) :
     top_style == "curved" ? cover_radius :
                             internal_height;
+
+// The mechanism hangs from the window head, so its brackets sit above the
+// guide. The rib is cut off at this depth and the space behind it left open,
+// which puts the pelmet in front of the blind rather than around it.
+cut_x = overall_width + pelmet_cut_offset;
+
+// Both mirrors are taken about the centre of the guide, which the U profile
+// and the dovetail are both symmetric about - so the foot and the tab come
+// through unchanged and still mate. The cover follows the pelmet's direction
+// only; the rib also flips for the far end of the window, where the groove has
+// to face the other way.
+cover_reversed = internal_depth < 0;
+rib_reversed = cover_reversed != (rib_hand == "right");
 
 // The cover occupies the band from the clear profile out to cover_thickness;
 // the rib covers that same band and carries rib_width more outside it.
@@ -252,14 +277,20 @@ if (tape_recess_enabled && tape_recess_depth >= back_thickness)
 if (tape_recess_enabled && tape_recess_width >= overall_width)
     echo("WARNING: tape_recess_width is at least the overall width - the recess will cut through the walls.");
 
-if (part != "guide" && internal_depth < overall_width)
-    echo("WARNING: internal_depth is less than the guide is wide - the pelmet's foot will overhang its bottom leg.");
+if (part != "guide" && envelope_depth + rib_band < overall_width)
+    echo("WARNING: the pelmet is shallower than the guide is wide - its foot will overhang the bottom leg.");
 if (part != "guide" && foot_length < rib_band)
     echo("WARNING: foot_length is shorter than the rib is wide - there is nothing for the joint to hold on to.");
 if (part != "guide" && groove_width >= cover_thickness)
     echo("WARNING: groove_width is at least cover_thickness - there is no shoulder left to butt against the rib.");
 if (part != "guide" && groove_depth >= rib_thickness)
     echo("WARNING: groove_depth is at least rib_thickness - the groove will cut straight through the rib.");
+if (part != "guide" && envelope_depth + rib_band <= cut_x)
+    echo("WARNING: the cut is past the front of the pelmet - there is no face left. Lower pelmet_cut_offset.");
+if (part != "guide" && clear_depth <= cut_x)
+    echo("WARNING: internal_depth does not reach past the cut - the pelmet's face would sit behind the mechanism.");
+if (part == "cover" && rib_hand == "right")
+    echo("NOTE: rib_hand only applies to the ribs. The cover is the same part either way; use a negative internal_depth to reverse it.");
 if (part != "guide" && lip_depth > envelope_depth)
     echo("WARNING: lip_depth reaches past the front of the pelmet.");
 if (part == "pelmet side" && max(rib_bed_depth, rib_bed_height) > bed_size)
@@ -496,7 +527,7 @@ module pelmet_clear_region_2d() {
     else if (top_style == "angled")
         polygon([[0, 0], [0, envelope_height], [envelope_depth, 0]]);
     else
-        square([internal_depth, internal_height]);
+        square([clear_depth, internal_height]);
 }
 
 // A band of material following the front profile, between two offsets of that
@@ -523,10 +554,52 @@ module pelmet_band_2d(inner, outer) {
     }
 }
 
+// The mechanism is screwed to the window head, so its brackets are directly
+// above the guide - exactly where a rib reaching back over the top would land.
+// The rib is cut off at cut_x and everything on the window side of that line
+// dropped, leaving an L: a leg along the bottom back to the guide, and the
+// face itself. These two clip whatever they are given to one side of that cut.
+module ahead_of_cut() {
+    big = envelope_depth + envelope_height + rib_band + 10;
+    intersection() {
+        children();
+        translate([cut_x, -big]) square([2 * big, 2 * big]);
+    }
+}
+
+module behind_cut() {
+    big = envelope_depth + envelope_height + rib_band + 10;
+    intersection() {
+        children();
+        translate([cut_x - 2 * big, -big]) square([2 * big, 2 * big]);
+    }
+}
+
+// Mirrors the pelmet about the centre of the guide. The guide's U profile and
+// the dovetail are both symmetric about that line, so the foot and the tab are
+// untouched by it and still mate either way round.
+module pelmet_mirror(on) {
+    if (on) translate([overall_width, 0, 0]) mirror([1, 0, 0]) children();
+    else children();
+}
+
 // The tongue on the end of the cover, and so the shape of the groove that
-// receives it: a thinner band running down the middle of the cover's own.
+// receives it: a thinner band running down the middle of the cover's own,
+// and only as far back as the rib goes.
 module cover_tongue_2d() {
-    pelmet_band_2d(tongue_inset, tongue_inset + groove_width);
+    ahead_of_cut() pelmet_band_2d(tongue_inset, tongue_inset + groove_width);
+}
+
+// The end of a cover section where it meets a rib. The cover keeps its top run
+// and lip - nothing is fixed above it out in the middle of the window - so the
+// two parts are different shapes and the end has to suit both: ahead of the cut
+// it steps down to the tongue and slides into the groove, behind the cut it
+// stays full thickness and passes the rib by.
+module cover_end_2d() {
+    union() {
+        cover_tongue_2d();
+        behind_cut() cover_profile_2d();
+    }
 }
 
 // The cover's cross-section: the panel itself, plus the lip that reaches back
@@ -549,7 +622,10 @@ module pelmet_rib() {
             // The band, and the bottom leg that carries it back to the guide.
             linear_extrude(height = rib_thickness)
                 union() {
-                    pelmet_band_2d(0, rib_band);
+                    // The face, cut off clear of the mechanism's brackets.
+                    ahead_of_cut() pelmet_band_2d(0, rib_band);
+                    // The bottom leg is not cut: it is what carries the face
+                    // back to the guide and the joint.
                     translate([0, -rib_band])
                         square([envelope_depth + rib_band, rib_band]);
                 }
@@ -647,10 +723,10 @@ module cover_section(w = cover_section_width,
                 linear_extrude(height = z1 - z0)
                     cover_profile_2d();
             if (start_end == "tongue")
-                linear_extrude(height = z0 + eps) cover_tongue_2d();
+                linear_extrude(height = z0 + eps) cover_end_2d();
             if (finish_end == "tongue")
                 translate([0, 0, z1 - eps])
-                    linear_extrude(height = w - z1 + eps) cover_tongue_2d();
+                    linear_extrude(height = w - z1 + eps) cover_end_2d();
             if (finish_end == "male") cover_tab(w);
             if (start_end == "male") cover_flip(w) cover_tab(w);
         }
@@ -666,9 +742,10 @@ module mw_plate_1() {
     if (fit_test_piece) fit_test();
     else if (part == "pelmet side")
         // Dropped so the whole rib sits at or above the bed.
-        translate([0, foot_length + joint_depth, 0]) pelmet_rib();
+        translate([0, foot_length + joint_depth, 0])
+            pelmet_mirror(rib_reversed) pelmet_rib();
     else if (part == "cover")
-        cover_section();
+        pelmet_mirror(cover_reversed) cover_section();
     else
         guide();
 }

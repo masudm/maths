@@ -33,6 +33,8 @@ MAGNET_END_MARGIN = 20.0
 JOINT_DEPTH = 12.0
 JOINT_CLEARANCE = 0.2
 
+OVERALL_WIDTH = 2 * WALL_THICKNESS + CHANNEL_WIDTH
+
 # Pelmet defaults, likewise from the .scad.
 INTERNAL_DEPTH = 50.0
 INTERNAL_HEIGHT = 100.0
@@ -46,11 +48,15 @@ LIP_DEPTH = 25.0
 TOP_ANGLE = 45.0
 SCREW_SPACING = 100.0
 SCREW_END_MARGIN = 20.0
+PELMET_CUT_OFFSET = 0.0
 
 RIB_BAND = COVER_THICKNESS + RIB_WIDTH
 # mw_plate_1 lifts the rib clear of the bed, so the inside corner of the
 # pelmet sits this far up the Y axis in the exported mesh.
 RIB_ORIGIN_Y = FOOT_LENGTH + JOINT_DEPTH
+# The rib is cut off here so it clears the brackets holding the mechanism to
+# the window head: nothing of the face may survive on the window side of it.
+CUT_X = OVERALL_WIDTH + PELMET_CUT_OFFSET
 
 
 def envelope(style):
@@ -63,7 +69,22 @@ def envelope(style):
         return r, r
     return INTERNAL_DEPTH, INTERNAL_HEIGHT
 
-OVERALL_WIDTH = 2 * WALL_THICKNESS + CHANNEL_WIDTH
+
+def rib_top(style):
+    """Height of the rib's face, once the cut has taken the top off it.
+
+    A straight profile keeps its top run, so the cut costs it no height. The
+    other two are sliced partway down, so their top is wherever the outer edge
+    of the band crosses the cut.
+    """
+    env_d, env_h = envelope(style)
+    if style == "angled":
+        t = math.radians(TOP_ANGLE)
+        return env_h - CUT_X + RIB_BAND / math.cos(t)
+    if style == "curved":
+        return math.sqrt((env_h + RIB_BAND) ** 2 - CUT_X ** 2)
+    return env_h + RIB_BAND
+
 
 failures = []
 checks = 0
@@ -85,6 +106,14 @@ def slab_volume(mesh, z0, z1):
     box = trimesh.creation.box(
         extents=[hi[0] - lo[0] + 10, hi[1] - lo[1] + 10, z1 - z0])
     box.apply_translation([(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (z0 + z1) / 2])
+    return trimesh.boolean.intersection([mesh, box], engine="manifold").volume
+
+
+def section_volume(mesh, x0, x1, z0, z1):
+    """Volume of the part of a mesh inside a window of x and z."""
+    lo, hi = mesh.bounds
+    box = trimesh.creation.box(extents=[x1 - x0, hi[1] - lo[1] + 10, z1 - z0])
+    box.apply_translation([(x0 + x1) / 2, (lo[1] + hi[1]) / 2, (z0 + z1) / 2])
     return trimesh.boolean.intersection([mesh, box], engine="manifold").volume
 
 
@@ -132,9 +161,11 @@ def pelmet_checks(tmp):
         check(math.isclose(rib.extents[0], env_d + RIB_BAND, abs_tol=0.05),
               f"{style} rib is as deep as the profile needs "
               f"({rib.extents[0]:.2f} vs {env_d + RIB_BAND:.2f})")
-        check(math.isclose(rib.extents[1], env_h + RIB_BAND + RIB_ORIGIN_Y, abs_tol=0.05),
-              f"{style} rib is as tall as the profile needs "
-              f"({rib.extents[1]:.2f} vs {env_h + RIB_BAND + RIB_ORIGIN_Y:.2f})")
+        # Curved is a touch under, because the arc is drawn as facets.
+        expected_height = rib_top(style) + RIB_ORIGIN_Y
+        check(math.isclose(rib.extents[1], expected_height, abs_tol=0.3),
+              f"{style} rib is as tall as the profile needs once cut "
+              f"({rib.extents[1]:.2f} vs {expected_height:.2f})")
 
         # The whole point of the part: the mechanism has to fit inside it.
         clear = trimesh.creation.box(
@@ -150,6 +181,62 @@ def pelmet_checks(tmp):
         check(math.isclose(rib.bounds[0][2], 0.0, abs_tol=0.01) and
               math.isclose(rib.extents[2], PROFILE_DEPTH, abs_tol=0.01),
               f"{style} rib lies flat on the bed, foot boss upwards")
+
+    print("\nThe rib is cut clear of the mechanism's brackets:")
+    for style in ("straight", "angled", "curved"):
+        rib = ribs[style]
+        # Everything on the window side of the cut, above the bottom leg, has
+        # to be gone - that is the whole point of the change.
+        above = trimesh.creation.box(extents=[CUT_X, 400, RIB_THICKNESS + 2])
+        above.apply_translation([CUT_X / 2, RIB_ORIGIN_Y + 200, RIB_THICKNESS / 2])
+        left_over = trimesh.boolean.intersection([rib, above], engine="manifold")
+        check(left_over.volume < 1.0,
+              f"{style} rib has nothing above the guide "
+              f"({left_over.volume:.2f} mm3 left of the cut)")
+
+        # The bottom leg does survive, or the face would not reach the joint.
+        leg = trimesh.creation.box(extents=[CUT_X, RIB_BAND, RIB_THICKNESS])
+        leg.apply_translation([CUT_X / 2, RIB_ORIGIN_Y - RIB_BAND / 2, RIB_THICKNESS / 2])
+        check(trimesh.boolean.intersection([rib, leg], engine="manifold").volume > 100,
+              f"{style} rib keeps its bottom leg back to the guide")
+
+    # A straight rib is now an L with only the return the cut leaves behind.
+    straight_return = INTERNAL_DEPTH + COVER_THICKNESS + RIB_WIDTH - CUT_X
+    top = trimesh.creation.box(extents=[400, RIB_BAND, RIB_THICKNESS])
+    top.apply_translation([200, RIB_ORIGIN_Y + INTERNAL_HEIGHT + RIB_BAND / 2,
+                           RIB_THICKNESS / 2])
+    run = trimesh.boolean.intersection([ribs["straight"], top], engine="manifold")
+    check(math.isclose(run.extents[0], straight_return, abs_tol=0.05),
+          f"the straight rib's top return is only what the cut leaves "
+          f"({run.extents[0]:.2f} vs {straight_return:.2f}mm)")
+
+    print("\nReversing and handedness:")
+    reversed_rib = render(tmp, "rib_reversed", part="pelmet side", internal_depth=-INTERNAL_DEPTH)
+    right_rib = render(tmp, "rib_right", part="pelmet side", rib_hand="right")
+    plain_rib = ribs["straight"]
+
+    check(math.isclose(reversed_rib.volume, plain_rib.volume, rel_tol=1e-6),
+          "a reversed pelmet is the same part, mirrored")
+    # Mirrored about the centre of the guide, which is what leaves the foot and
+    # the dovetail untouched.
+    check(math.isclose(reversed_rib.bounds[0][0], OVERALL_WIDTH - plain_rib.bounds[1][0],
+                       abs_tol=0.01) and
+          math.isclose(reversed_rib.bounds[1][0], OVERALL_WIDTH - plain_rib.bounds[0][0],
+                       abs_tol=0.01),
+          f"it is mirrored about the guide's centreline "
+          f"(x {reversed_rib.bounds[0][0]:.2f}..{reversed_rib.bounds[1][0]:.2f})")
+
+    # The two controls compose: they are the same mirror, named for the two
+    # different reasons you would reach for it.
+    check(math.isclose(right_rib.volume, reversed_rib.volume, rel_tol=1e-6) and
+          all(math.isclose(a, b, abs_tol=0.01)
+              for a, b in zip(right_rib.extents, reversed_rib.extents)),
+          "a right-hand rib is congruent to a reversed left-hand one")
+
+    reversed_cover = render(tmp, "cover_reversed", part="cover",
+                            internal_depth=-INTERNAL_DEPTH)
+    check(math.isclose(reversed_cover.volume, covers["straight"].volume, rel_tol=1e-6),
+          "the cover reverses with the pelmet, so the pair still match")
 
     print("\nPelmet meets the guide:")
     # The top guide segment is printed with a socket at its far end; the rib's
@@ -171,6 +258,12 @@ def pelmet_checks(tmp):
     check(trimesh.boolean.intersection([top_guide, tight], engine="manifold").volume > 1.0,
           "that joint is snug too - a 0.5mm overshoot collides")
 
+    # The right-hand rib is the mirror image, so its tab has to mate as well.
+    right = right_rib.copy()
+    right.apply_translation([0, SEGMENT_LENGTH - JOINT_DEPTH, 0])
+    check(trimesh.boolean.intersection([top_guide, right], engine="manifold").volume < 1.0,
+          "the right-hand rib's tab drops into the same guide socket")
+
     print("\nCover meets the rib:")
     for style in ("straight", "angled", "curved"):
         cover = covers[style].copy()
@@ -184,6 +277,22 @@ def pelmet_checks(tmp):
         seated = trimesh.boolean.union([ribs[style], cover], engine="manifold")
         check(seated.body_count == 1,
               f"{style} cover and rib touch - the shoulder butts the rib face")
+
+    print("\nThe tongue is cut to suit both shapes:")
+    cover = covers["straight"]
+    # Behind the cut there is no rib, so the cover must stay full thickness
+    # there - the same as it is out in the middle of the section.
+    behind_end = section_volume(cover, 0, CUT_X, 1, GROOVE_DEPTH - 1)
+    behind_mid = section_volume(cover, 0, CUT_X, 60, GROOVE_DEPTH - 1 + 59)
+    check(math.isclose(behind_end, behind_mid, rel_tol=1e-3),
+          f"behind the cut the cover's end is full thickness "
+          f"({behind_end:.1f} vs {behind_mid:.1f} mm3)")
+
+    ahead_end = section_volume(cover, CUT_X, 400, 1, GROOVE_DEPTH - 1)
+    ahead_mid = section_volume(cover, CUT_X, 400, 60, GROOVE_DEPTH - 1 + 59)
+    check(ahead_end < ahead_mid * 0.9,
+          f"ahead of the cut it steps down to the tongue "
+          f"({ahead_end:.1f} vs {ahead_mid:.1f} mm3)")
 
     print("\nCover sections join to each other:")
     left = render(tmp, "cover_left", part="cover",

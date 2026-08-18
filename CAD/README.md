@@ -140,15 +140,28 @@ roller mechanism, and boxes the mechanism in so the whole thing looks finished.
 
 It is two printed parts:
 
-- **`pelmet side`** — a rib for each end. It runs back along the bottom to sit
-  on top of the guide, carries a **male dovetail underneath** that plugs
-  straight into the guide's existing socket, and follows the front profile so
-  the cover has something to sit in. A groove down its inner face takes the
+- **`pelmet side`** — a rib for each end, shaped like an **L**: a leg along the
+  bottom that sits on top of the guide and carries a **male dovetail
+  underneath**, and the face itself. A groove down its inner face takes the
   cover.
-- **`cover`** — the panel spanning from one side to the other, with a **lip**
-  at the back that screws or tapes to the window's top lining. Each end is
-  either a **tongue** that slides into a rib's groove, or half a dovetail
-  joining it to the next section.
+- **`cover`** — the panel spanning from one side to the other, shaped like a
+  **C**: a top run, the face, and a **lip** at the back that screws or tapes to
+  the window's top lining. Each end is either a **tongue** that slides into a
+  rib's groove, or half a dovetail joining it to the next section.
+
+The pelmet goes **in front of** the blind, not around it. The mechanism hangs
+from the window head on brackets, and those brackets sit directly above the
+guides — exactly where a rib reaching back over the top would land. So the rib
+is cut off at `pelmet_cut_offset`, measured from the front of the guide, and
+everything on the window side of that line is left open. `0` lines the cut up
+with the guide's front face and tracks it if you change the guide's size;
+negative brings the cut back over the guide, positive pushes it into the room.
+
+Out in the middle of the window nothing is fixed above the cover, so the cover
+keeps its top run and lip. That makes the two parts different shapes, and the
+**tongue is cut to suit both**: ahead of the cut it steps down and slides into
+the rib's groove, and behind the cut it stays full thickness and passes the rib
+by.
 
 ![The three profiles](images/pelmet_styles.png)
 
@@ -184,6 +197,8 @@ computed envelope and warns when it will not fit `bed_size`.
 | `internal_height` | 100 | Clear height inside — the mechanism's height (sketch B) |
 | `top_angle` | 45 | Angled only: slope from horizontal |
 | `curve_radius` | 0 | Curved only: arc radius; 0 works out the smallest that clears |
+| `pelmet_cut_offset` | 0 | Where the rib's face starts, from the front of the guide |
+| `rib_hand` | left | Which end of the window this rib is for |
 | `rib_width` | 8 | Material outside the cover on the ribs |
 | `rib_thickness` | 8 | Thickness of the ribs, across the window |
 | `foot_length` | 25 | How far the rib sits down over the guide |
@@ -209,6 +224,24 @@ The lip takes **the same mounting options as the guide** —
 just laid out along the window instead of up it. The countersink opens
 downwards, so the screw head finishes flush underneath and out of sight.
 
+### Reversing it, and which end is which
+
+`internal_depth` takes **negative** values. The sign says which side of the
+guide the pelmet reaches out to; the size is what it has to clear. A negative
+depth mirrors the rib *and* the cover together, so the pair still match.
+
+`rib_hand` mirrors the rib alone. The groove is on one face only, so the two
+ends of the window genuinely need a chiral pair — print one `left` and one
+`right`. Both still lie flat on the bed the same way.
+
+![A left and a right rib](images/pelmet_hands.png)
+
+Both mirror about the centre of the guide, which the U profile and the dovetail
+are symmetric about, so the foot and the tab are untouched and mate either way
+round. Being the same mirror, the two controls compose: **`right` with a
+positive depth is the same object as `left` with a negative one.** They are
+named separately because they are two different reasons to reach for it.
+
 ### How many parts?
 
 Two ribs, and `ceil(window width / cover_section_width)` cover sections. For a
@@ -233,15 +266,15 @@ Assemble in this order:
 
 1. Guides up the sides first, top segment ending `female`.
 2. Drop a rib onto each guide — same joint, same sideways motion as joining two
-   guide segments.
+   guide segments. One `left`, one `right`.
 3. Slide the cover in from one side so its tongues run down both grooves. The
    full-thickness shoulder butts the rib face, so no light gets through the
    join.
 4. Screw or tape the lip to the top lining.
 
-Note the ribs are ribs, not solid plates, so the very ends of the pelmet are
-open above and behind the mechanism. That is deliberate — it saves a lot of
-plastic — but if you want them closed off, raise `rib_width`.
+Note the ribs are ribs, not solid plates, and are open above and behind the
+mechanism — partly to save plastic, and above the guide because the mechanism's
+brackets need that space. Raise `rib_width` if you want more of the end covered.
 
 ## Tuning the fit
 
@@ -370,6 +403,10 @@ plate so buyers can still download an STL.
 > Optional pockets along the inner walls take 6×3mm magnets, so the guide also
 > works as a magnetic strip. Countersunk screw holes and a recess for 19mm
 > mounting tape are both built in and can be switched off.
+>
+> The pelmet reverses, so it works whichever side of the guide your mechanism
+> sits on, and the ribs come in a left and a right so the groove faces the
+> right way at both ends.
 >
 > The joint is built for real printers rather than perfect ones: the clearance
 > is adjustable and sits entirely on the socket side, the socket corners are

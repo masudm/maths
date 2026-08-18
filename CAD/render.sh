@@ -36,8 +36,13 @@ openscad -o "$out/guide_fit_test.stl" -D fit_test_piece=true "$@" "$scad"
 # The top cover: a rib for each side, and the cover sections that span between
 # them. A one-section cover is tongued at both ends; longer runs need male and
 # female ends in the middle, exactly as the guide does.
-echo "rendering pelmet_rib"
-openscad -o "$out/pelmet_rib.stl" -D 'part="pelmet side"' "$@" "$scad"
+# The ribs are a chiral pair: the groove has to face the middle of the window
+# at both ends, so one is mirrored.
+for hand in left right; do
+    echo "rendering pelmet_rib_$hand"
+    openscad -o "$out/pelmet_rib_$hand.stl" -D 'part="pelmet side"' \
+        -D "rib_hand=\"$hand\"" "$@" "$scad"
+done
 
 render_cover() {
     local name="$1" start="$2" finish="$3"
