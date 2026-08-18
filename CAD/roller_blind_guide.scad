@@ -4,6 +4,10 @@
 // that bleeds down the sides of the blind, and stops the fabric flapping when
 // the window is open.
 //
+// The matching top cover (pelmet) hides the roller mechanism and plugs into
+// the top of the guides with the same joint. Pick which part to print with the
+// "part" setting at the top.
+//
 // The guide prints in segments that interlock with a jigsaw (dovetail) joint,
 // so it can run the full height of a window on a small printer bed. Optional
 // pockets on the inner walls take glued-in disc magnets, so the guide doubles
@@ -14,6 +18,11 @@
 //
 // Written for OpenSCAD 2021.01 / MakerWorld Parametric Model Maker.
 // Self-contained: no include<>, no use<>, no external libraries.
+
+/* [Part] */
+
+// Which piece to print. The guide runs up the sides; the pelmet covers the mechanism at the top
+part = "guide";  // [guide, pelmet side, cover]
 
 /* [Main dimensions] */
 
@@ -87,10 +96,57 @@ tape_recess_width = 19;      // [5:0.5:100]
 // Depth of the tape recess. Keep it well under the back thickness
 tape_recess_depth = 1;       // [0.2:0.1:5]
 
+/* [Top cover - shape] */
+
+// Front profile of the pelmet
+top_style = "straight";   // [straight, angled, curved]
+// Depth of the blind mechanism, back to front - the clear space inside (sketch: A)
+internal_depth = 50;      // [20:1:300]
+// Height of the blind mechanism - the clear space inside (sketch: B)
+internal_height = 100;    // [20:1:300]
+// Angled only: slope of the face, measured from horizontal. Shallower reaches further forward
+top_angle = 45;           // [15:1:80]
+// Curved only: arc radius. 0 works out the smallest radius that clears the mechanism
+curve_radius = 0;         // [0:1:400]
+
+/* [Top cover - build] */
+
+// Material outside the cover on the side ribs
+rib_width = 8;            // [3:0.5:30]
+// Thickness of the side ribs, across the window
+rib_thickness = 8;        // [3:0.5:30]
+// How far the rib sits down over the guide below it
+foot_length = 25;         // [10:1:100]
+// Thickness of the cover panel itself
+cover_thickness = 4;      // [1.5:0.1:12]
+// Length of one printed section of cover, across the window
+cover_section_width = 180; // [40:1:400]
+// How far the lip reaches back towards the window, to screw into the top lining
+lip_depth = 25;           // [0:1:100]
+// End of the cover section nearest the origin
+cover_start = "tongue";   // [tongue, female, male, plain]
+// Far end of the cover section
+cover_end = "male";       // [tongue, female, male, plain]
+// Waist of the cover's tab. Wider than the guide's, so the joint reaches the whole profile
+cover_neck_fraction = 0.60;  // [0.2:0.01:0.9]
+// Widest part of the cover's tab
+cover_head_fraction = 0.92;  // [0.3:0.01:0.98]
+
+/* [Top cover - groove] */
+
+// Thickness of the tongue on the end of the cover, and so of the groove it sits in
+groove_width = 2.4;       // [1:0.1:8]
+// How far the tongue reaches into the rib
+groove_depth = 6;         // [2:0.5:20]
+// Slack around the tongue. Same idea as the joint clearance
+groove_clearance = 0.2;   // [0:0.05:1]
+
 /* [Quality] */
 
 // Facets per circle. Raise for a smoother render, lower for a faster one
 resolution = 64;             // [16:8:128]
+// Your printer's bed, used only to warn when a part will not fit
+bed_size = 220;              // [100:10:600]
 
 /* [Hidden] */
 
@@ -130,6 +186,43 @@ fillet = min(edge_fillet, max(fillet_limit - eps, 0));
 joint_neck = overall_width * joint_neck_fraction / 2;
 joint_head = overall_width * joint_head_fraction / 2;
 
+// Top cover ---------------------------------------------------------------
+
+// The front profile has to pass outside the front top corner of the clear
+// rectangle, so anything other than a square profile needs a bigger envelope
+// to hold the same mechanism. Both are worked out from the clear size rather
+// than asked for, so the mechanism always fits whatever style is chosen.
+auto_radius = sqrt(internal_depth * internal_depth + internal_height * internal_height);
+cover_radius = curve_radius <= 0 ? auto_radius : curve_radius;
+
+envelope_depth =
+    top_style == "angled" ? internal_depth + internal_height / tan(top_angle) :
+    top_style == "curved" ? cover_radius :
+                            internal_depth;
+envelope_height =
+    top_style == "angled" ? internal_height + internal_depth * tan(top_angle) :
+    top_style == "curved" ? cover_radius :
+                            internal_height;
+
+// The cover occupies the band from the clear profile out to cover_thickness;
+// the rib covers that same band and carries rib_width more outside it.
+rib_band = cover_thickness + rib_width;
+// The tongue is centred in the cover's thickness.
+tongue_inset = (cover_thickness - groove_width) / 2;
+
+// Top of the cover, and so the face that meets the window lining. An angled
+// profile is cut off square at the back, which reaches a little higher than
+// the panel is thick.
+cover_top_y = envelope_height +
+    (top_style == "angled" ? cover_thickness / cos(top_angle) : cover_thickness);
+// How far the cover's cross-section reaches from the window, used as the span
+// of its jigsaw joint.
+cover_span = envelope_depth + cover_thickness;
+
+// Bounding size of each pelmet part, for the bed warnings.
+rib_bed_depth = envelope_depth + rib_band;
+rib_bed_height = envelope_height + rib_band + foot_length + joint_depth;
+
 // Warnings ----------------------------------------------------------------
 // echo() rather than assert(), so a bad combination still renders something
 // in the MakerWorld customizer instead of failing outright.
@@ -159,6 +252,23 @@ if (tape_recess_enabled && tape_recess_depth >= back_thickness)
 if (tape_recess_enabled && tape_recess_width >= overall_width)
     echo("WARNING: tape_recess_width is at least the overall width - the recess will cut through the walls.");
 
+if (part != "guide" && internal_depth < overall_width)
+    echo("WARNING: internal_depth is less than the guide is wide - the pelmet's foot will overhang its bottom leg.");
+if (part != "guide" && foot_length < rib_band)
+    echo("WARNING: foot_length is shorter than the rib is wide - there is nothing for the joint to hold on to.");
+if (part != "guide" && groove_width >= cover_thickness)
+    echo("WARNING: groove_width is at least cover_thickness - there is no shoulder left to butt against the rib.");
+if (part != "guide" && groove_depth >= rib_thickness)
+    echo("WARNING: groove_depth is at least rib_thickness - the groove will cut straight through the rib.");
+if (part != "guide" && lip_depth > envelope_depth)
+    echo("WARNING: lip_depth reaches past the front of the pelmet.");
+if (part == "pelmet side" && max(rib_bed_depth, rib_bed_height) > bed_size)
+    echo(str("WARNING: a rib needs ", rib_bed_depth, " x ", rib_bed_height,
+             "mm of bed. Use a steeper top_angle or a smaller mechanism."));
+if (part == "cover" && max(cover_section_width, cover_top_y) > bed_size)
+    echo(str("WARNING: a cover section needs ", cover_span, " x ", cover_top_y,
+             "mm of bed and stands ", cover_section_width, "mm tall."));
+
 // 2D profiles -------------------------------------------------------------
 
 // The U cross-section, drawn in X (width) and Y (which becomes depth once the
@@ -185,23 +295,27 @@ module profile_2d() {
         profile_square_2d();
 }
 
-// Corners of the jigsaw tab, drawn flat in X (width) and Y (along the guide),
-// starting at y and reaching joint_depth further on. The waist near the base
-// is what stops a joined pair pulling apart lengthways.
-function joint_points(y) = [
-    [centre_x - joint_neck, y],
-    [centre_x - joint_neck, y + joint_depth * 0.25],
-    [centre_x - joint_head, y + joint_depth * 0.55],
-    [centre_x - joint_head * 0.85, y + joint_depth],
-    [centre_x + joint_head * 0.85, y + joint_depth],
-    [centre_x + joint_head, y + joint_depth * 0.55],
-    [centre_x + joint_neck, y + joint_depth * 0.25],
-    [centre_x + joint_neck, y]
-];
+// Corners of the jigsaw tab, drawn flat: across span, starting at y and
+// reaching joint_depth further on. The waist near the base is what stops a
+// joined pair pulling apart lengthways. Taking the span and the two fractions
+// as arguments lets the guide and the pelmet cover share one tab shape at
+// their own very different widths.
+function joint_points(span, y, neck_f, head_f) =
+    let (c = span / 2, neck = span * neck_f / 2, head = span * head_f / 2)
+    [
+        [c - neck, y],
+        [c - neck, y + joint_depth * 0.25],
+        [c - head, y + joint_depth * 0.55],
+        [c - head * 0.85, y + joint_depth],
+        [c + head * 0.85, y + joint_depth],
+        [c + head, y + joint_depth * 0.55],
+        [c + neck, y + joint_depth * 0.25],
+        [c + neck, y]
+    ];
 
 // The tab outline itself.
-module joint_profile_2d(y) {
-    polygon(joint_points(y));
+module joint_profile_2d(span, y, neck_f, head_f) {
+    polygon(joint_points(span, y, neck_f, head_f));
 }
 
 // The socket outline: the tab grown by gap on every face, with a relief circle
@@ -209,11 +323,11 @@ module joint_profile_2d(y) {
 // it cannot cut a sharp inside corner - it leaves a fillet of material exactly
 // where the tab's corners need to go, and the joint stands proud. The relief
 // circles clear that material out, the same trick as a dogbone in CNC joinery.
-module socket_profile_2d(gap) {
+module socket_profile_2d(span, gap, neck_f, head_f) {
     union() {
-        offset(delta = gap) joint_profile_2d(-gap);
+        offset(delta = gap) joint_profile_2d(span, -gap, neck_f, head_f);
         if (joint_corner_relief > 0)
-            for (p = joint_points(0))
+            for (p = joint_points(span, 0, neck_f, head_f))
                 translate(p) circle(r = joint_corner_relief + gap);
     }
 }
@@ -255,7 +369,8 @@ module joint_tab_at_finish(len = segment_length) {
         profile_solid(len - eps, joint_depth + eps);
         translate([0, 0, -eps])
             linear_extrude(height = profile_depth + 2 * eps)
-                joint_profile_2d(len - eps);
+                joint_profile_2d(overall_width, len - eps,
+                                 joint_neck_fraction, joint_head_fraction);
     }
 }
 
@@ -267,7 +382,8 @@ module joint_tab_at_finish(len = segment_length) {
 module joint_socket_at_start() {
     translate([0, 0, -eps])
         linear_extrude(height = profile_depth + 2 * eps)
-            socket_profile_2d(joint_clearance);
+            socket_profile_2d(overall_width, joint_clearance,
+                              joint_neck_fraction, joint_head_fraction);
 
     // The first layers of a print squash outwards, which makes the bottom of
     // the tab fatter and the bottom of the socket tighter at the same time.
@@ -276,7 +392,9 @@ module joint_socket_at_start() {
     if (joint_first_layer_relief > 0 && joint_first_layer_height > 0)
         translate([0, 0, -eps])
             linear_extrude(height = joint_first_layer_height + eps)
-                socket_profile_2d(joint_clearance + joint_first_layer_relief);
+                socket_profile_2d(overall_width,
+                                  joint_clearance + joint_first_layer_relief,
+                                  joint_neck_fraction, joint_head_fraction);
 }
 
 // Magnet pockets on the inner face of the left wall.
@@ -299,22 +417,25 @@ module magnet_pockets() {
     translate([overall_width, 0, 0]) mirror([1, 0, 0]) magnet_pockets_left();
 }
 
+// A screw hole drilled along +Z through t of material, countersunk at the far
+// end so the head finishes flush there. Shared by the guide's back and the
+// pelmet's lip, so both get the same screw settings.
+module countersunk_hole(t) {
+    translate([0, 0, -eps])
+        cylinder(h = t + 2 * eps, d = screw_hole_diameter);
+    translate([0, 0, t - countersink_depth])
+        cylinder(h = countersink_depth + eps,
+                 d1 = screw_hole_diameter,
+                 d2 = screw_head_diameter);
+}
+
 // Countersunk screw holes down the centre of the channel floor, plus the
 // optional tape recess in the back face.
 module mounting_cuts(len = segment_length) {
     if (screw_holes_enabled)
         for (i = [0 : screw_count - 1])
-            translate([centre_x, screw_first_y + i * screw_spacing, 0]) {
-                // Shank, all the way through the back.
-                translate([0, 0, -eps])
-                    cylinder(h = back_thickness + 2 * eps, d = screw_hole_diameter);
-                // Countersink, opening out towards the inside of the channel
-                // so the screw head finishes flush with the floor.
-                translate([0, 0, back_thickness - countersink_depth])
-                    cylinder(h = countersink_depth + eps,
-                             d1 = screw_hole_diameter,
-                             d2 = screw_head_diameter);
-            }
+            translate([centre_x, screw_first_y + i * screw_spacing, 0])
+                countersunk_hole(back_thickness);
 
     if (tape_recess_enabled)
         translate([centre_x - tape_recess_width / 2, -joint_depth - eps, -eps])
@@ -355,11 +476,201 @@ module fit_test() {
               with_magnets = false, with_mounting = false);
 }
 
+
+// Top cover ---------------------------------------------------------------
+//
+// Everything below is drawn in a frame whose origin is the back bottom inside
+// corner of the pelmet: X runs from the window forwards into the room, Y runs
+// up, and Z runs across the window. Those are the same axes the guide uses, so
+// a tab made by joint_tab_at_finish() points straight down into the guide's
+// socket without any further work.
+
+// The space the mechanism needs, closed off by the window at the back, the
+// bottom of the mechanism, and the chosen front profile. Nothing may intrude.
+module pelmet_clear_region_2d() {
+    if (top_style == "curved")
+        intersection() {
+            circle(r = cover_radius);
+            square([cover_radius + 1, cover_radius + 1]);
+        }
+    else if (top_style == "angled")
+        polygon([[0, 0], [0, envelope_height], [envelope_depth, 0]]);
+    else
+        square([internal_depth, internal_height]);
+}
+
+// A band of material following the front profile, between two offsets of that
+// clear region. Clipping to the quadrant keeps the band on the profile itself
+// rather than wrapping round the open back and underside.
+//
+// The offsets are rounded rather than mitred. A mitre would run the sharp nose
+// of an angled profile out to a long spike, well past the size the part is
+// supposed to be; rounding keeps every style exactly its offset larger than
+// the space it has to clear, and gives a nose that prints.
+module pelmet_offset_2d(amount) {
+    if (amount > 0) offset(r = amount) pelmet_clear_region_2d();
+    else pelmet_clear_region_2d();
+}
+
+module pelmet_band_2d(inner, outer) {
+    big = envelope_depth + envelope_height + rib_band + 10;
+    difference() {
+        intersection() {
+            pelmet_offset_2d(outer);
+            square([big, big]);
+        }
+        pelmet_offset_2d(inner);
+    }
+}
+
+// The tongue on the end of the cover, and so the shape of the groove that
+// receives it: a thinner band running down the middle of the cover's own.
+module cover_tongue_2d() {
+    pelmet_band_2d(tongue_inset, tongue_inset + groove_width);
+}
+
+// The cover's cross-section: the panel itself, plus the lip that reaches back
+// over the window lining to be screwed or taped to it.
+module cover_profile_2d() {
+    union() {
+        pelmet_band_2d(0, cover_thickness);
+        if (lip_depth > 0)
+            translate([0, cover_top_y - cover_thickness])
+                square([lip_depth, cover_thickness]);
+    }
+}
+
+// The side rib: a band following the same profile, a leg along the bottom
+// reaching back to the guide, and a stub of the guide's own cross-section for
+// the joint to be cut from.
+module pelmet_rib() {
+    difference() {
+        union() {
+            // The band, and the bottom leg that carries it back to the guide.
+            linear_extrude(height = rib_thickness)
+                union() {
+                    pelmet_band_2d(0, rib_band);
+                    translate([0, -rib_band])
+                        square([envelope_depth + rib_band, rib_band]);
+                }
+            // A length of real guide profile, so the tab below is trimmed to
+            // exactly the shape the guide's socket expects.
+            profile_solid(-foot_length, foot_length);
+            translate([0, -foot_length, 0])
+                flip(foot_length) joint_tab_at_finish(foot_length);
+        }
+        // The groove the cover slides into, cut in the face that looks across
+        // the window. All of the slack is here, so the tongue prints nominal.
+        translate([0, 0, rib_thickness - groove_depth])
+            linear_extrude(height = groove_depth + eps)
+                offset(delta = groove_clearance)
+                    cover_tongue_2d();
+    }
+}
+
+// Mirrors a cover feature from one end of the section to the other.
+module cover_flip(w) {
+    translate([0, 0, w]) mirror([0, 0, 1]) children();
+}
+
+// The cover's jigsaw, drawn across the depth of its cross-section and reaching
+// along the window. It uses the same tab shape as the guide, but a wider head:
+// the tab has to take in the front face as well as the top run, and a head
+// sized for the guide would only ever catch the middle.
+module cover_tab(w) {
+    intersection() {
+        // The panel only. The lip is left out of the joint: where the profile
+        // slopes away from it the two are separate islands in cross-section,
+        // and a tab spanning both would leave part of itself floating.
+        translate([0, 0, w - eps])
+            linear_extrude(height = joint_depth + eps)
+                pelmet_band_2d(0, cover_thickness);
+        cover_joint_prism()
+            joint_profile_2d(cover_span, w - eps,
+                             cover_neck_fraction, cover_head_fraction);
+    }
+}
+
+module cover_socket() {
+    intersection() {
+        translate([0, 0, -eps])
+            linear_extrude(height = joint_depth + 2 * eps)
+                pelmet_band_2d(0, cover_thickness);
+        cover_joint_prism()
+            socket_profile_2d(cover_span, joint_clearance,
+                              cover_neck_fraction, cover_head_fraction);
+    }
+}
+
+// Stands a joint outline up out of the X-Z plane and runs it through the whole
+// height of the cover, the same way profile_solid() runs the guide's
+// cross-section along its length.
+module cover_joint_prism() {
+    y_hi = cover_top_y + 1;
+    translate([0, y_hi, 0])
+        rotate([90, 0, 0])
+            linear_extrude(height = y_hi + 1)
+                children();
+}
+
+// Screw holes and tape recess in the lip, laid out along the window exactly as
+// the guide lays them out along its length.
+module cover_mounting_cuts(w) {
+    lip_x = min(lip_depth, envelope_depth) / 2;
+    span = w - 2 * screw_end_margin;
+    count = span < 0 ? 1 : floor(span / screw_spacing) + 1;
+    first = (w - (count - 1) * screw_spacing) / 2;
+
+    if (screw_holes_enabled && lip_depth > 0)
+        for (i = [0 : count - 1])
+            translate([lip_x, cover_top_y + eps, first + i * screw_spacing])
+                rotate([90, 0, 0])
+                    countersunk_hole(cover_thickness + 2 * eps);
+
+    if (tape_recess_enabled && lip_depth > 0)
+        translate([lip_x - tape_recess_width / 2,
+                   cover_top_y - tape_recess_depth,
+                   -eps])
+            cube([tape_recess_width, tape_recess_depth + eps, w + 2 * eps]);
+}
+
+// One printed length of cover. Each end is either a tongue that slides into a
+// rib, half of a jigsaw joining it to the next section, or left plain.
+module cover_section(w = cover_section_width,
+                     start_end = cover_start,
+                     finish_end = cover_end) {
+    z0 = start_end == "tongue" ? groove_depth : 0;
+    z1 = w - (finish_end == "tongue" ? groove_depth : 0);
+    difference() {
+        union() {
+            translate([0, 0, z0])
+                linear_extrude(height = z1 - z0)
+                    cover_profile_2d();
+            if (start_end == "tongue")
+                linear_extrude(height = z0 + eps) cover_tongue_2d();
+            if (finish_end == "tongue")
+                translate([0, 0, z1 - eps])
+                    linear_extrude(height = w - z1 + eps) cover_tongue_2d();
+            if (finish_end == "male") cover_tab(w);
+            if (start_end == "male") cover_flip(w) cover_tab(w);
+        }
+        if (start_end == "female") cover_socket();
+        if (finish_end == "female") cover_flip(w) cover_socket();
+        cover_mounting_cuts(w);
+    }
+}
+
 // MakerWorld output -------------------------------------------------------
 
 module mw_plate_1() {
     if (fit_test_piece) fit_test();
-    else guide();
+    else if (part == "pelmet side")
+        // Dropped so the whole rib sits at or above the bed.
+        translate([0, foot_length + joint_depth, 0]) pelmet_rib();
+    else if (part == "cover")
+        cover_section();
+    else
+        guide();
 }
 
 mw_plate_1();

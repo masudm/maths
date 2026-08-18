@@ -33,6 +33,36 @@ MAGNET_END_MARGIN = 20.0
 JOINT_DEPTH = 12.0
 JOINT_CLEARANCE = 0.2
 
+# Pelmet defaults, likewise from the .scad.
+INTERNAL_DEPTH = 50.0
+INTERNAL_HEIGHT = 100.0
+RIB_WIDTH = 8.0
+RIB_THICKNESS = 8.0
+FOOT_LENGTH = 25.0
+COVER_THICKNESS = 4.0
+GROOVE_DEPTH = 6.0
+COVER_SECTION_WIDTH = 180.0
+LIP_DEPTH = 25.0
+TOP_ANGLE = 45.0
+SCREW_SPACING = 100.0
+SCREW_END_MARGIN = 20.0
+
+RIB_BAND = COVER_THICKNESS + RIB_WIDTH
+# mw_plate_1 lifts the rib clear of the bed, so the inside corner of the
+# pelmet sits this far up the Y axis in the exported mesh.
+RIB_ORIGIN_Y = FOOT_LENGTH + JOINT_DEPTH
+
+
+def envelope(style):
+    """Depth and height the chosen profile needs to clear the mechanism."""
+    if style == "angled":
+        t = math.tan(math.radians(TOP_ANGLE))
+        return INTERNAL_DEPTH + INTERNAL_HEIGHT / t, INTERNAL_HEIGHT + INTERNAL_DEPTH * t
+    if style == "curved":
+        r = math.hypot(INTERNAL_DEPTH, INTERNAL_HEIGHT)
+        return r, r
+    return INTERNAL_DEPTH, INTERNAL_HEIGHT
+
 OVERALL_WIDTH = 2 * WALL_THICKNESS + CHANNEL_WIDTH
 
 failures = []
@@ -82,6 +112,122 @@ def render(out_dir, name, **overrides):
         ]
         check(False, f"{name} rendered without warnings (got: {offending})")
     return trimesh.load_mesh(out)
+
+
+
+
+def pelmet_checks(tmp):
+    """The top cover: the ribs that plug into the guides, and the panel."""
+    print("\nPelmet - every style:")
+    ribs, covers = {}, {}
+    for style in ("straight", "angled", "curved"):
+        ribs[style] = render(tmp, f"rib_{style}", part="pelmet side", top_style=style)
+        covers[style] = render(tmp, f"cover_{style}", part="cover", top_style=style)
+        for name, mesh in ((f"{style} rib", ribs[style]), (f"{style} cover", covers[style])):
+            check(mesh.is_watertight and mesh.body_count == 1,
+                  f"{name} is one watertight solid")
+
+        env_d, env_h = envelope(style)
+        rib = ribs[style]
+        check(math.isclose(rib.extents[0], env_d + RIB_BAND, abs_tol=0.05),
+              f"{style} rib is as deep as the profile needs "
+              f"({rib.extents[0]:.2f} vs {env_d + RIB_BAND:.2f})")
+        check(math.isclose(rib.extents[1], env_h + RIB_BAND + RIB_ORIGIN_Y, abs_tol=0.05),
+              f"{style} rib is as tall as the profile needs "
+              f"({rib.extents[1]:.2f} vs {env_h + RIB_BAND + RIB_ORIGIN_Y:.2f})")
+
+        # The whole point of the part: the mechanism has to fit inside it.
+        clear = trimesh.creation.box(
+            extents=[INTERNAL_DEPTH, INTERNAL_HEIGHT, RIB_THICKNESS + 2])
+        clear.apply_translation([INTERNAL_DEPTH / 2,
+                                 RIB_ORIGIN_Y + INTERNAL_HEIGHT / 2,
+                                 RIB_THICKNESS / 2])
+        intruding = trimesh.boolean.intersection([rib, clear], engine="manifold")
+        check(intruding.volume < 1.0,
+              f"{style} rib leaves the {INTERNAL_DEPTH:.0f}x{INTERNAL_HEIGHT:.0f} "
+              f"mechanism space clear (intrusion {intruding.volume:.2f} mm3)")
+
+        check(math.isclose(rib.bounds[0][2], 0.0, abs_tol=0.01) and
+              math.isclose(rib.extents[2], PROFILE_DEPTH, abs_tol=0.01),
+              f"{style} rib lies flat on the bed, foot boss upwards")
+
+    print("\nPelmet meets the guide:")
+    # The top guide segment is printed with a socket at its far end; the rib's
+    # tab drops into it. This is the check that the two halves of the system
+    # actually fit each other.
+    top_guide = render(tmp, "guide_topped", joint_start="female", joint_end="female")
+    rib = ribs["straight"].copy()
+    rib.apply_translation([0, SEGMENT_LENGTH - JOINT_DEPTH, 0])
+    overlap = trimesh.boolean.intersection([top_guide, rib], engine="manifold")
+    check(overlap.volume < 1.0,
+          f"the rib's tab drops into the guide's socket without interference "
+          f"(overlap {overlap.volume:.3f} mm3)")
+
+    joined = trimesh.boolean.union([top_guide, rib], engine="manifold")
+    check(joined.body_count == 1, "guide and rib make one interlocked assembly")
+
+    tight = ribs["straight"].copy()
+    tight.apply_translation([0, SEGMENT_LENGTH - JOINT_DEPTH - 0.5, 0])
+    check(trimesh.boolean.intersection([top_guide, tight], engine="manifold").volume > 1.0,
+          "that joint is snug too - a 0.5mm overshoot collides")
+
+    print("\nCover meets the rib:")
+    for style in ("straight", "angled", "curved"):
+        cover = covers[style].copy()
+        # The tongue reaches into the groove, so the cover starts short of the
+        # rib's inner face by the depth of the groove.
+        cover.apply_translation([0, RIB_ORIGIN_Y, RIB_THICKNESS - GROOVE_DEPTH])
+        clash = trimesh.boolean.intersection([ribs[style], cover], engine="manifold")
+        check(clash.volume < 1.0,
+              f"{style} cover's tongue slides into the rib's groove "
+              f"(overlap {clash.volume:.3f} mm3)")
+        seated = trimesh.boolean.union([ribs[style], cover], engine="manifold")
+        check(seated.body_count == 1,
+              f"{style} cover and rib touch - the shoulder butts the rib face")
+
+    print("\nCover sections join to each other:")
+    left = render(tmp, "cover_left", part="cover",
+                  cover_start="tongue", cover_end="male")
+    right = render(tmp, "cover_right", part="cover",
+                   cover_start="female", cover_end="tongue")
+    check(math.isclose(left.extents[2], COVER_SECTION_WIDTH + JOINT_DEPTH, abs_tol=0.05),
+          f"a male-ended section takes joint_depth more room than its width "
+          f"({left.extents[2]:.2f})")
+
+    mated = right.copy()
+    mated.apply_translation([0, 0, COVER_SECTION_WIDTH])
+    check(trimesh.boolean.intersection([left, mated], engine="manifold").volume < 1.0,
+          "cover sections mate without interference")
+    pair = trimesh.boolean.union([left, mated], engine="manifold")
+    check(pair.body_count == 1, "joined cover sections are one body")
+    check(math.isclose(pair.extents[2], 2 * COVER_SECTION_WIDTH, abs_tol=0.05),
+          f"a joined pair spans exactly two section widths ({pair.extents[2]:.2f})")
+
+    close = right.copy()
+    close.apply_translation([0, 0, COVER_SECTION_WIDTH - 0.5])
+    check(trimesh.boolean.intersection([left, close], engine="manifold").volume > 1.0,
+          "the cover joint is snug - a 0.5mm overshoot collides")
+
+    print("\nCover lip:")
+    plain = render(tmp, "cover_plain", part="cover", cover_start="plain",
+                   cover_end="plain")
+    no_screws = render(tmp, "cover_no_screws", part="cover", cover_start="plain",
+                       cover_end="plain", screw_holes_enabled=False)
+    check(no_screws.volume > plain.volume, "the lip carries screw holes")
+
+    expected = math.floor(
+        (COVER_SECTION_WIDTH - 2 * SCREW_END_MARGIN) / SCREW_SPACING) + 1
+    hole = math.pi * (4.2 / 2) ** 2 * COVER_THICKNESS
+    removed = no_screws.volume - plain.volume
+    check(hole * expected <= removed <= hole * expected * 2.5,
+          f"the lip has {expected} countersunk holes "
+          f"({removed:.0f} mm3 removed)")
+
+    taped = render(tmp, "cover_taped", part="cover", cover_start="plain",
+                   cover_end="plain", tape_recess_enabled=True)
+    check(taped.volume < plain.volume,
+          f"the same tape recess option works on the lip "
+          f"({plain.volume - taped.volume:.0f} mm3 removed)")
 
 
 def main():
@@ -227,6 +373,8 @@ def main():
               f"channel_width=40 widens the part (got {wide.extents[0]:.2f})")
         check(math.isclose(wide.extents[1], 120, abs_tol=0.01),
               f"segment_length=120 shortens the part (got {wide.extents[1]:.2f})")
+
+        pelmet_checks(tmp)
 
     print(f"\n{checks - len(failures)}/{checks} checks passed")
     if failures:

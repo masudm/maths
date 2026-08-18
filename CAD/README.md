@@ -1,6 +1,7 @@
 # Parametric Roller Blind Guide
 
-A printable side guide for roller blinds. It does three jobs:
+A printable side guide for roller blinds, plus a matching top cover. It does
+three jobs:
 
 - **Blocks the light** that bleeds down the gap between the blind and the reveal.
 - **Holds the blind in place** so it stops flapping when the window is open.
@@ -8,7 +9,12 @@ A printable side guide for roller blinds. It does three jobs:
   disc magnets, so things can be stuck to the guide.
 
 Because a guide has to run the full height of a window, the model prints in
-segments that interlock with a jigsaw joint.
+segments that interlock with a jigsaw joint. The **top cover** then hides the
+roller mechanism above the blind and plugs into the top of the guides with the
+same joint — see [Top cover](#top-cover-pelmet).
+
+Pick what to print with the **`part`** setting: `guide`, `pelmet side`, or
+`cover`.
 
 ![A single segment](images/segment.png)
 
@@ -127,6 +133,116 @@ Trim the last segment to length by rendering it with a shorter
 **Bed size:** a segment with a tab occupies `segment_length + joint_depth` on
 the bed — 212mm at the defaults. If that will not fit, reduce `segment_length`.
 
+## Top cover (pelmet)
+
+The guides stop light at the sides. The top cover stops it escaping over the
+roller mechanism, and boxes the mechanism in so the whole thing looks finished.
+
+It is two printed parts:
+
+- **`pelmet side`** — a rib for each end. It runs back along the bottom to sit
+  on top of the guide, carries a **male dovetail underneath** that plugs
+  straight into the guide's existing socket, and follows the front profile so
+  the cover has something to sit in. A groove down its inner face takes the
+  cover.
+- **`cover`** — the panel spanning from one side to the other, with a **lip**
+  at the back that screws or tapes to the window's top lining. Each end is
+  either a **tongue** that slides into a rib's groove, or half a dovetail
+  joining it to the next section.
+
+![The three profiles](images/pelmet_styles.png)
+
+### Sizing it: A and B
+
+Measure the mechanism, not the pelmet. `internal_depth` (A) and
+`internal_height` (B) are the **clear space inside** — set them to your roller
+mechanism's depth and height and the part is guaranteed to clear it, whichever
+profile you pick. The clear space starts at the window (the back) and at the
+top of the guide (the bottom), so the joint never eats into it.
+
+A `straight` profile is exactly that size. `angled` and `curved` have to bulge
+outwards to pass around the front top corner of the same rectangle, so their
+outer envelope is larger:
+
+| `top_style` | Outer depth | Outer height |
+|---|---|---|
+| `straight` | A | B |
+| `angled` | A + B / tan(`top_angle`) | B + A × tan(`top_angle`) |
+| `curved` | R | R, where R = `curve_radius`, or `sqrt(A² + B²)` when set to 0 |
+
+That growth is steep: a 50×100 mechanism behind a 45° slope needs a 150×150
+envelope. Use a steeper `top_angle` to keep it tight to the window, or
+`curved`, which at the automatic radius only needs 112×112. The part echoes its
+computed envelope and warns when it will not fit `bed_size`.
+
+### Parameters
+
+| Parameter | Default | What it does |
+|---|---|---|
+| `top_style` | straight | `straight`, `angled` or `curved` |
+| `internal_depth` | 50 | Clear depth inside — the mechanism's depth (sketch A) |
+| `internal_height` | 100 | Clear height inside — the mechanism's height (sketch B) |
+| `top_angle` | 45 | Angled only: slope from horizontal |
+| `curve_radius` | 0 | Curved only: arc radius; 0 works out the smallest that clears |
+| `rib_width` | 8 | Material outside the cover on the ribs |
+| `rib_thickness` | 8 | Thickness of the ribs, across the window |
+| `foot_length` | 25 | How far the rib sits down over the guide |
+| `cover_thickness` | 4 | Thickness of the cover panel |
+| `cover_section_width` | 180 | Length of one printed cover section |
+| `lip_depth` | 25 | How far the lip reaches back over the lining |
+| `cover_start` / `cover_end` | tongue / male | `tongue`, `female`, `male` or `plain` |
+| `cover_neck_fraction` | 0.60 | Waist of the cover's dovetail |
+| `cover_head_fraction` | 0.92 | Widest part of it |
+| `groove_width` | 2.4 | Thickness of the tongue, and so of the groove |
+| `groove_depth` | 6 | How far the tongue reaches into the rib |
+| `groove_clearance` | 0.2 | Slack around the tongue |
+
+The cover's dovetail is wider-headed than the guide's on purpose: it has to
+take in the front face as well as the top run, and a head sized for the guide
+would only ever catch the middle. The lip is deliberately left out of the
+joint — where the profile slopes away from it the two are separate islands in
+cross-section, and a tab spanning both would print part of itself in mid-air.
+
+The lip takes **the same mounting options as the guide** —
+`screw_holes_enabled`, `screw_hole_diameter`, `screw_head_diameter`,
+`screw_spacing`, `screw_end_margin` and the `tape_recess_*` settings all apply,
+just laid out along the window instead of up it. The countersink opens
+downwards, so the screw head finishes flush underneath and out of sight.
+
+### How many parts?
+
+Two ribs, and `ceil(window width / cover_section_width)` cover sections. For a
+single section, set both ends to `tongue`. For a longer run: first section
+`tongue` / `male`, middles `female` / `male`, last `female` / `tongue`.
+
+The **top guide segment must be printed with `joint_end = "female"`** so the
+rib has a socket to plug into.
+
+### Printing and assembly
+
+The rib prints as modelled — flat, with the guide-profile foot standing proud —
+and needs no supports. The cover is a constant cross-section, so **stand it on
+end** as modelled: every layer is identical and there is no overhang anywhere.
+It needs `cover_section_width` of Z height, 180mm at the defaults. Laying the
+straight or angled cover on its flat face works too and is quicker, but the
+curved one has no flat face to lie on.
+
+![A pelmet on top of a guide](images/pelmet_assembly.png)
+
+Assemble in this order:
+
+1. Guides up the sides first, top segment ending `female`.
+2. Drop a rib onto each guide — same joint, same sideways motion as joining two
+   guide segments.
+3. Slide the cover in from one side so its tongues run down both grooves. The
+   full-thickness shoulder butts the rib face, so no light gets through the
+   join.
+4. Screw or tape the lip to the top lining.
+
+Note the ribs are ribs, not solid plates, so the very ends of the pelmet are
+open above and behind the mechanism. That is deliberate — it saves a lot of
+plastic — but if you want them closed off, raise `rib_width`.
+
 ## Tuning the fit
 
 A joint modelled to exact size will not fit, because no printer prints to exact
@@ -217,7 +333,8 @@ renders there.
 ./render.sh -D channel_width=32 -D segment_length=150
 ```
 
-Pre-rendered STLs at the default settings are in [`stl/`](stl).
+Pre-rendered STLs at the default settings are in [`stl/`](stl) — guide
+segments, the fit test, a pelmet rib and the cover sections.
 
 There is also a geometry test suite that renders the variants and checks them —
 watertight, correctly sized, pockets in both walls, and a male tab that mates
@@ -260,5 +377,10 @@ plate so buyers can still download an STL.
 > seat, and the first layers are opened up to swallow elephant's foot. Switch
 > on the fit test piece to print a short pair of joints and dial the clearance
 > in before committing to a whole window.
+>
+> A matching top cover is built in: pick `pelmet side` and `cover` from the
+> part list for a pelmet that hides the roller mechanism and plugs into the top
+> of the guides with the same joint. Straight, angled or curved, sized from
+> your mechanism so it always clears it.
 >
 > Prints flat with no supports. Measure your window, hit Customize, and print.

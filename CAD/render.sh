@@ -33,4 +33,25 @@ render end    female none "$@"
 echo "rendering fit_test"
 openscad -o "$out/guide_fit_test.stl" -D fit_test_piece=true "$@" "$scad"
 
+# The top cover: a rib for each side, and the cover sections that span between
+# them. A one-section cover is tongued at both ends; longer runs need male and
+# female ends in the middle, exactly as the guide does.
+echo "rendering pelmet_rib"
+openscad -o "$out/pelmet_rib.stl" -D 'part="pelmet side"' "$@" "$scad"
+
+render_cover() {
+    local name="$1" start="$2" finish="$3"
+    shift 3
+    echo "rendering $name (start=$start, end=$finish)"
+    openscad -o "$out/$name.stl" -D 'part="cover"' \
+        -D "cover_start=\"$start\"" \
+        -D "cover_end=\"$finish\"" \
+        "$@" "$scad"
+}
+
+render_cover cover_single tongue tongue "$@"
+render_cover cover_left   tongue male   "$@"
+render_cover cover_middle female male   "$@"
+render_cover cover_right  female tongue "$@"
+
 echo "STLs written to $out"
